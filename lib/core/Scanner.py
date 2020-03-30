@@ -30,47 +30,62 @@ class ScannerException(Exception):
 class Scanner(object):
     def __init__(self, requester, testPath=None, suffix=None):
         if testPath is None or testPath is "":
-            self.testPath = RandomUtils.randString()
+            self.testPath = ['.env', 'etc/passwd', '.git', 'admin', '.htaccess']
         else:
             self.testPath = testPath
 
         self.suffix = suffix if suffix is not None else ""
         self.requester = requester
         self.tester = None
-        self.redirectRegExp = None
-        self.invalidStatus = None
-        self.dynamicParser = None
+        self.redirectRegExp = []
+        self.invalidStatus = []
+        self.dynamicParser = []
         self.ratio = 0.98
         self.redirectStatusCodes = [301, 302, 307]
         self.setup()
 
     def setup(self):
-        firstPath = self.testPath + self.suffix
-        firstResponse = self.requester.request(firstPath)
-        self.invalidStatus = firstResponse.status
+        for path in self.testPath:
+            firstPath = RandomUtils.randString() + '/' + path + self.suffix
+            firstResponse = self.requester.request(firstPath)
+            if firstResponse.status not in self.invalidStatus:
+                self.invalidStatus.append(firstResponse.status)
 
-        if self.invalidStatus == 404:
-            # Using the response status code is enough :-}
-            return
+            if firstResponse.status == 404:
+                # Using the response status code is enough :-}
+                continue
 
-        # look for redirects
-        secondPath = RandomUtils.randString(omit=self.testPath) + self.suffix
-        secondResponse = self.requester.request(secondPath)
+            # look for redirects
+            secondPath = RandomUtils.randString() + '/' + path + self.suffix
+            secondResponse = self.requester.request(secondPath)
 
-        if firstResponse.status in self.redirectStatusCodes and firstResponse.redirect and secondResponse.redirect:
-            self.redirectRegExp = self.generateRedirectRegExp(firstResponse.redirect, secondResponse.redirect)
+            if firstResponse.status in self.redirectStatusCodes and firstResponse.redirect and secondResponse.redirect:
+                self.redirectRegExp.append(self.generateRedirectRegExp(firstResponse.redirect, secondResponse.redirect))
 
-        # Analyze response bodies
-        self.dynamicParser = DynamicContentParser(self.requester, firstPath, firstResponse.body, secondResponse.body)
+            # Analyze response bodies
+            dynamicParser = DynamicContentParser(self.requester, firstPath, firstResponse.body, secondResponse.body)
 
-        baseRatio = float("{0:.2f}".format(self.dynamicParser.comparisonRatio))  # Rounding to 2 decimals
+            baseRatio = float("{0:.2f}".format(dynamicParser.comparisonRatio))  # Rounding to 2 decimals
 
-        # If response length is small, adjust ratio
-        if len(firstResponse) < 2000:
-            baseRatio -= 0.1
+            ratio = self.ratio
+            # If response length is small, adjust ratio
+            if len(firstResponse) < 2000:
+                baseRatio -= 0.1
 
-        if baseRatio < self.ratio:
-            self.ratio = baseRatio
+            if baseRatio < self.ratio:
+                ratio = baseRatio
+            
+            if self.dynamicParser:
+                flag = 0
+                for  _dynamicParser,__ in  self.dynamicParser:
+                    _ratio = dynamicParser.compareTo(_dynamicParser.cleanPage)
+                    flag +=  _ratio > ratio
+                
+                if not flag:
+                    self.dynamicParser.append((dynamicParser, ratio))
+
+            else:
+                self.dynamicParser.append((dynamicParser, ratio))
 
     def generateRedirectRegExp(self, firstLocation, secondLocation):
         if firstLocation is None or secondLocation is None:
@@ -94,27 +109,29 @@ class Scanner(object):
         return regexp
 
     def scan(self, path, response):
-        if self.invalidStatus == 404 and response.status == 404:
+        if 404 in self.invalidStatus and response.status == 404:
             return False
 
-        if self.invalidStatus != response.status:
+        if response.status not in self.invalidStatus:
             return True
 
         redirectToInvalid = False
 
         if self.redirectRegExp is not None and response.redirect is not None:
-            redirectToInvalid = re.match(self.redirectRegExp, response.redirect) is not None
-            # If redirection doesn't match the rule, mark as found
-
+            flag = False
+            for redirectRegExp in self.redirectRegExp:
+                redirectToInvalid = re.match(redirectRegExp, response.redirect) is not None
+                # If redirection doesn't match the rule, mark as found
+                flag += redirectToInvalid
             if not redirectToInvalid:
                 return True
 
-        ratio = self.dynamicParser.compareTo(response.body)
+        for dynamicParser, ratioStandard in self.dynamicParser:
+            ratio = dynamicParser.compareTo(response.body)
+            if ratio >= ratioStandard:
+                return False
 
-        if ratio >= self.ratio:
-            return False
-
-        elif redirectToInvalid and ratio >= (self.ratio - 0.15):
-            return False
+            elif redirectToInvalid and ratio >= (ratioStandard - 0.15):
+                return False
 
         return True
