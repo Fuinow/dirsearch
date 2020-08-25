@@ -1,6 +1,8 @@
 dirsearch
 =========
 
+此版本为 dirsearch 改版 demo，为什么要改，改了什么，见https://github.com/Fuinow/MyPaper/blob/master/%E4%BB%8Edirsearch%E7%9C%8B%E7%9B%AE%E5%BD%95%E6%89%AB%E6%8F%8F/%E4%BB%8Edirsearch%E7%9C%8B%E7%9B%AE%E5%BD%95%E6%89%AB%E6%8F%8F.md
+
 Current Release: v0.3.9 (2019.11.26)
 
 
